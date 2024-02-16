@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from tweet.tweetPreprocessing import getTokens
 
 price_directory = './price/raw'
 tweet_directory = './tweet/raw'
@@ -41,11 +42,13 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
                 continue
             
             tweet_file = os.path.join(ticker_path, filename)
+            tweet_data[ticker_symbol][tweet_date] = getTokens(tweet_file)
+            """ Commented out previous method
             with open(tweet_file, 'r') as f:
                 # Split tweets (each tweet is on different line)
                 lines = f.readlines()
                 tweet_data[ticker_symbol][tweet_date] = lines
-    
+            """
     return tweet_data
 
 
