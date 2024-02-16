@@ -26,7 +26,14 @@ def remove_extra_spaces(text):
   return  re.sub(r"\s+"," ", text)  
 
 def remove_contraction(text):
-  return ' '.join([contractions.fix(word) for word in text.split()])
+  arr = []
+  for word in text.split():
+      try:
+        arr.append(contractions.fix(word))
+      except:
+        arr.append(word)
+  text = ' '.join(arr)
+  return text
   
 def remove_stopwords(text):
   return " ".join([word for word in text.split() if word not in stop_words])

@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+from transformers import BertTokenizer
 from tweet.tweetPreprocessing import getTokens
 
 price_directory = './price/raw'
@@ -34,6 +35,7 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
             continue
         
         tweet_data[ticker_symbol] = {}
+        tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
         # Loop through each text file in the ticker folder
         for filename in os.listdir(ticker_path):
@@ -42,7 +44,7 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
                 continue
             
             tweet_file = os.path.join(ticker_path, filename)
-            tweet_data[ticker_symbol][tweet_date] = getTokens(tweet_file)
+            tweet_data[ticker_symbol][tweet_date] = getTokens(tweet_file, tokenizer)
             """ Commented out previous method
             with open(tweet_file, 'r') as f:
                 # Split tweets (each tweet is on different line)

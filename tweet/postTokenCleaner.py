@@ -4,7 +4,7 @@ def remove_punc(list_token):
     strg_numb ='''0123456789'''
     strg_3dots='...'
     strg_2dots=".."
-    strg_punc = '''!()+-[]{}|;:'"\,<>./?@#$£%^&*_~“”…‘’'''
+    strg_punc = '''!()+-[]{}|;:'"\\,<>./?@#$£%^&*_~“”…‘’'''
     strg_output=''
     #for idx, char in enumerate(strg_token): 
     #print(item)
