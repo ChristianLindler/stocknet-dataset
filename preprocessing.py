@@ -1,5 +1,7 @@
+import json
 import pandas as pd
 import os
+from datetime import datetime, timedelta
 
 price_directory = './price/raw'
 tweet_directory = './tweet/raw'
@@ -44,7 +46,10 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
             with open(tweet_file, 'r') as f:
                 # Split tweets (each tweet is on different line)
                 lines = f.readlines()
-                tweet_data[ticker_symbol][tweet_date] = lines
+                jsons = []
+                for line in lines:
+                    jsons.append(json.loads(line))
+                tweet_data[ticker_symbol][tweet_date] = jsons
     
     return tweet_data
 
@@ -95,6 +100,7 @@ def load_prices(stock_tickers=None, start_date=None, end_date=None):
     
     return price_data
 
+
 def get_trading_days(price_data):
     tickers = list(price_data.keys())
     example_ticker = tickers[0]
@@ -102,16 +108,57 @@ def get_trading_days(price_data):
     return sorted(list(trading_days))
 
 
-def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback_window=7):
-    price_data = load_prices(stock_tickers, start_date, end_date)
-    tweet_data = load_tweets(stock_tickers, start_date, end_date)
-    trading_days = get_trading_days(price_data)
-    
+def get_previous_dates(date_str, n):
+    # Convert the input date string to a datetime object
+    date = datetime.strptime(date_str, '%Y-%m-%d')
+    preceding_dates = []
 
-        
+    # Iterate to get "n" preceding dates
+    for i in range(n):
+        previous_date = date - timedelta(days=i+1)
+        preceding_dates.append(previous_date.strftime('%Y-%m-%d'))
+
+    preceding_dates.reverse()
+    return preceding_dates
+
+def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback_window=7):
+    lookback_start = get_previous_dates(start_date, lookback_window)[0]
+
+    price_data = load_prices(stock_tickers, lookback_start, end_date)
+    tweet_data = load_tweets(stock_tickers, lookback_start, end_date)
+    trading_days = get_trading_days(price_data)
+
+    print(tweet_data['AAPL'].keys())
+
+    output = []
+    # Loop through trading days 
+    for idx, date in enumerate(trading_days):
+        if idx < lookback_window:
+            continue
+        data_point = {}
+        data_point['date_target'] = date
+        data_point['date_last'] = trading_days[idx - 1]
+        data_point['dates'] = get_previous_dates(date, lookback_window)
+
+        # Stock prices
+        adj_closed_last = []
+        adj_closed_target = []
+        for stock in stock_tickers:
+            adj_closed_last.append(price_data[stock][trading_days[idx - 1]])
+            adj_closed_target.append(price_data[stock][date])
+        data_point['adj_closed_last'] = adj_closed_last
+        data_point['adj_closed_target'] = adj_closed_target
+
+        output.append(data_point)
+
+
+
+    return output
+
+
 stock_tickers = ['AAPL', 'ABB']
-start_date = '2014-01-01'
-end_date = '2014-01-10'
-price_data = load_prices(stock_tickers, start_date, end_date)
-print(load_tweets())
-print(get_trading_days(price_data))
+start_date = '2014-02-01'
+end_date = '2014-02-20'
+
+print(load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-02-01'][0])
+#print(preprocess_data(stock_tickers, start_date, end_date, 2)[0])
