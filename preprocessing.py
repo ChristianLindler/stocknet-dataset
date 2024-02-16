@@ -1,3 +1,4 @@
+from collections import defaultdict
 import json
 import pandas as pd
 import os
@@ -52,7 +53,6 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
                 tweet_data[ticker_symbol][tweet_date] = jsons
     
     return tweet_data
-
 
 def load_prices(stock_tickers=None, start_date=None, end_date=None):
     """
@@ -121,6 +121,42 @@ def get_previous_dates(date_str, n):
     preceding_dates.reverse()
     return preceding_dates
 
+
+# IF FIRST TWEET IS ON PRECEDING DAY, PUT 0, OTHERWISE I PUT 1/TIME FROM MIDNIGHT TO FIRST TWEET
+def calculate_time_features(tweets):
+    # Convert string representations of datetime to actual datetime objects
+    tweets_with_datetime = [{'created_at': datetime.strptime(tweet['created_at'], '%a %b %d %H:%M:%S %z %Y')} for tweet in tweets]
+    
+    # Sort tweets by creation time
+    sorted_tweets = sorted(tweets_with_datetime, key=lambda x: x['created_at'])
+
+    # Calculate time gap between consecutive tweets
+    time_features = []
+
+    # If first tweet is in preceding day put 0, else put 1/time from midnight
+    if len(sorted_tweets) == 0:
+        time_features.append([0])
+        return time_features
+
+    first_tweet_time = sorted_tweets[0]['created_at']
+    midnight = first_tweet_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    last_tweet_time = sorted_tweets[-1]['created_at']
+    
+    # Check if first and last tweets occur on different days
+    if first_tweet_time.date() != last_tweet_time.date():
+        time_features.append([0])
+    else:
+        time_diff_to_midnight = (first_tweet_time - midnight).total_seconds() / 60
+        time_features.append([1 / time_diff_to_midnight if time_diff_to_midnight != 0 else 0])
+
+    # Create time_features list
+    for i in range(1, len(sorted_tweets)):
+        time_diff = (sorted_tweets[i]['created_at'] - sorted_tweets[i-1]['created_at']).total_seconds() / 60
+        time_features.append([1 / time_diff if time_diff != 0 else 0])
+
+    return time_features
+
+
 def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback_window=7):
     lookback_start = get_previous_dates(start_date, lookback_window)[0]
 
@@ -128,17 +164,20 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
     tweet_data = load_tweets(stock_tickers, lookback_start, end_date)
     trading_days = get_trading_days(price_data)
 
-    print(tweet_data['AAPL'].keys())
-
     output = []
     # Loop through trading days 
     for idx, date in enumerate(trading_days):
         if idx < lookback_window:
             continue
+
+        # Initialize data point
         data_point = {}
+
+        # Dates
         data_point['date_target'] = date
         data_point['date_last'] = trading_days[idx - 1]
-        data_point['dates'] = get_previous_dates(date, lookback_window)
+        lookback_dates = get_previous_dates(date, lookback_window)
+        data_point['dates'] = lookback_dates
 
         # Stock prices
         adj_closed_last = []
@@ -149,16 +188,35 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
         data_point['adj_closed_last'] = adj_closed_last
         data_point['adj_closed_target'] = adj_closed_target
 
+        # Length_data and time_features
+        length_data = []
+        time_features = []
+        for stock in stock_tickers:
+            num_tweets = []
+            time_features_by_stock = []
+            for lookback_date in lookback_dates:
+                if lookback_date in tweet_data[stock]:
+                    num_tweets.append(len(tweet_data[stock][lookback_date]))
+                    time_features_by_stock_by_day = calculate_time_features(tweet_data[stock][lookback_date])
+                    time_features_by_stock.append(time_features_by_stock_by_day)
+                else:
+                    num_tweets.append(0)
+
+            time_features.append(time_features_by_stock)
+            length_data.append(num_tweets)
+
+        data_point['length_data'] = length_data
+        data_point['time_features'] = time_features
+        
         output.append(data_point)
-
-
 
     return output
 
 
 stock_tickers = ['AAPL', 'ABB']
-start_date = '2014-02-01'
-end_date = '2014-02-20'
+start_date = '2014-01-01'
+end_date = '2014-02-01'
 
-print(load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-02-01'][0])
-#print(preprocess_data(stock_tickers, start_date, end_date, 2)[0])
+tweets = load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-01-04']
+#print(calculate_time_features(tweets))
+print(preprocess_data(stock_tickers, start_date, end_date, 2)[0]['time_features'])
