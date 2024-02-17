@@ -1,3 +1,4 @@
+import pickle
 import pandas as pd
 import os
 from transformers import BertTokenizer
@@ -123,8 +124,6 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
     tweet_data = load_tweets(stock_tickers, lookback_start, end_date)
     trading_days = get_trading_days(price_data)
 
-    print(tweet_data['AAPL'].keys())
-
     output = []
     # Loop through trading days 
     for idx, date in enumerate(trading_days):
@@ -135,25 +134,49 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
         data_point['date_last'] = trading_days[idx - 1]
         data_point['dates'] = get_previous_dates(date, lookback_window)
 
-        # Stock prices
+        # Stock prices and embeddings
         adj_closed_last = []
         adj_closed_target = []
+        embeddings = []
         for stock in stock_tickers:
             adj_closed_last.append(price_data[stock][trading_days[idx - 1]])
             adj_closed_target.append(price_data[stock][date])
+            embeddings_per_stock = []
+            for lookback_day in data_point['dates']:
+                if lookback_day in tweet_data[stock]:
+                    embeddings_per_stock.append(tweet_data[stock][lookback_day])
+                else:
+                    embeddings_per_stock.append([])
+            embeddings.append(embeddings_per_stock)
+        
+        data_point['embeddings'] = embeddings
         data_point['adj_closed_last'] = adj_closed_last
         data_point['adj_closed_target'] = adj_closed_target
 
         output.append(data_point)
 
-
-
     return output
 
 
-stock_tickers = ['AAPL', 'ABB']
+stock_tickers = ['AAPL', 'AMZN', 'GOOG']
 start_date = '2014-02-01'
-end_date = '2014-02-20'
+end_date = '2014-03-01'
 
-print(load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-02-01'][0])
-#print(preprocess_data(stock_tickers, start_date, end_date, 2)[0])
+
+#print(load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-02-01'][0])
+print('Preprocessing data...')
+data = preprocess_data(stock_tickers, start_date, end_date, 2)
+split_ratio = 0.8
+split_index = int(len(data) * split_ratio)
+training_data = data[:split_index]
+testing_data = data[split_index:]
+
+
+# Save training and testing sets to pickle files
+with open('training_data.pkl', 'wb') as f:
+    pickle.dump(training_data, f)
+
+with open('testing_data.pkl', 'wb') as f:
+    pickle.dump(testing_data, f)
+
+print('Saved data to training_data.pkl and testing_data.pkl')
