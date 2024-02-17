@@ -2,6 +2,8 @@ from collections import defaultdict
 import json
 import pandas as pd
 import os
+from transformers import BertTokenizer
+from tweet.tweetPreprocessing import getTokens
 from datetime import datetime, timedelta
 
 price_directory = './price/raw'
@@ -36,6 +38,7 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
             continue
         
         tweet_data[ticker_symbol] = {}
+        tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
         # Loop through each text file in the ticker folder
         for filename in os.listdir(ticker_path):
@@ -44,13 +47,7 @@ def load_tweets(stock_tickers=None, start_date=None, end_date=None):
                 continue
             
             tweet_file = os.path.join(ticker_path, filename)
-            with open(tweet_file, 'r') as f:
-                # Split tweets (each tweet is on different line)
-                lines = f.readlines()
-                jsons = []
-                for line in lines:
-                    jsons.append(json.loads(line))
-                tweet_data[ticker_symbol][tweet_date] = jsons
+            tweet_data[ticker_symbol][tweet_date] = getTokens(tweet_file, tokenizer)
     
     return tweet_data
 
@@ -99,7 +96,6 @@ def load_prices(stock_tickers=None, start_date=None, end_date=None):
                 price_data[ticker_symbol][date] = adj_close
     
     return price_data
-
 
 def get_trading_days(price_data):
     tickers = list(price_data.keys())
