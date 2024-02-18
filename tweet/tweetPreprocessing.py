@@ -4,9 +4,12 @@ import os
 from nltk.twitter.common import json2csv
 from nltk.tokenize import TweetTokenizer
 
+
 from tweet.textProc import pretokenization_cleaning
 from tweet.normalizer import lemmatize
 from tweet.postTokenCleaner import posttokenization_cleaning
+
+
 
 def tokenize(text):
   tknzr = TweetTokenizer(reduce_len=True)
@@ -30,5 +33,7 @@ def getTokens(tweet_file, tokenizer):
 
   #import csv
   #tweets.to_csv('testing.csv',columns=tweets.columns.values,quoting=csv.QUOTE_ALL, index=False)
+  max_length = 15
+  padded_embeddings = [embedding[:max_length] + [0] * max(0, max_length - len(embedding)) for embedding in tweets['BertEmbedding']]
 
-  return tweets['BertEmbedding'].tolist()
+  return padded_embeddings
