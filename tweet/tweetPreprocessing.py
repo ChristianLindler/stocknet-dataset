@@ -1,21 +1,23 @@
 import pandas as pd
+import numpy as np
 import os
 
 from nltk.twitter.common import json2csv
 from nltk.tokenize import TweetTokenizer
+import torch
 
 
 from tweet.textProc import pretokenization_cleaning
 from tweet.normalizer import lemmatize
 from tweet.postTokenCleaner import posttokenization_cleaning
 
-
+from transformers import BertTokenizer, BertModel
 
 def tokenize(text):
   tknzr = TweetTokenizer(reduce_len=True)
   return tknzr.tokenize(text)
 
-def getTokens(tweet_file, tokenizer):
+def getTokens(tweet_file):
   with open(tweet_file) as fp:
       json2csv(fp, 'temp.csv', ['created_at', 'text'])
 
@@ -29,11 +31,17 @@ def getTokens(tweet_file, tokenizer):
   tweets['token'] = [tokenize(pretoken) for pretoken in tweets['pretoken']]
   tweets['normalized'] = [lemmatize(token) for token in tweets['token']]
   tweets['postToken'] = [posttokenization_cleaning(normalized) for normalized in tweets['normalized']]
-  tweets['BertEmbedding'] = [tokenizer.encode(tokens) for tokens in tweets['postToken']]
 
-  #import csv
-  #tweets.to_csv('testing.csv',columns=tweets.columns.values,quoting=csv.QUOTE_ALL, index=False)
-  max_length = 15
-  padded_embeddings = [embedding[:max_length] + [0] * max(0, max_length - len(embedding)) for embedding in tweets['BertEmbedding']]
+  tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+  model = BertModel.from_pretrained('bert-base-uncased')
 
-  return padded_embeddings
+  tweets['BertEmbedding'] = [tokenizer.encode(' '.join(tokens), add_special_tokens=True, return_tensors='pt')  for tokens in tweets['postToken']]
+
+  embeddings = []
+  for elem in tweets['BertEmbedding']:
+    with torch.no_grad():
+        outputs = model(elem)
+        last_hidden_states = outputs[0]
+        embeddings.append(np.array(last_hidden_states.mean(dim=1).squeeze()))
+
+  return embeddings
