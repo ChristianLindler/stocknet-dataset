@@ -12,6 +12,8 @@ price_directory = './price/raw'
 tweet_directory = './tweet/raw'
 
 
+TWEETS_PER_DAY = 10
+
 def load_tweet_tokens(stock_tickers=None, start_date=None, end_date=None):
     tweet_data = {}
 
@@ -150,26 +152,24 @@ def get_previous_dates(date_str, n):
     preceding_dates.reverse()
     return preceding_dates
 
+
 # IF FIRST TWEET IS ON PRECEDING DAY, PUT 0, OTHERWISE I PUT 1/TIME FROM MIDNIGHT TO FIRST TWEET
 def calculate_time_features(tweets):
     # Convert string representations of datetime to actual datetime objects
     tweets_with_datetime = [{'created_at': datetime.strptime(tweet['created_at'], '%a %b %d %H:%M:%S %z %Y')} for tweet in tweets]
-    
-    # Sort tweets by creation time
     sorted_tweets = sorted(tweets_with_datetime, key=lambda x: x['created_at'])
 
-    # Calculate time gap between consecutive tweets
     time_features = []
 
     # If first tweet is in preceding day put 0, else put 1/time from midnight
     if len(sorted_tweets) == 0:
-        time_features.append([0])
         return time_features
 
     first_tweet_time = sorted_tweets[0]['created_at']
     midnight = first_tweet_time.replace(hour=0, minute=0, second=0, microsecond=0)
     last_tweet_time = sorted_tweets[-1]['created_at']
     
+
     # Check if first and last tweets occur on different days
     if first_tweet_time.date() != last_tweet_time.date():
         time_features.append([0])
@@ -178,10 +178,12 @@ def calculate_time_features(tweets):
         time_features.append([1 / time_diff_to_midnight if time_diff_to_midnight != 0 else 0])
 
     # Create time_features list
-    for i in range(1, len(sorted_tweets)):
+    for i in range(1, min(len(sorted_tweets), TWEETS_PER_DAY)):
         time_diff = (sorted_tweets[i]['created_at'] - sorted_tweets[i-1]['created_at']).total_seconds() / 60
         time_features.append([1 / time_diff if time_diff != 0 else 0])
 
+    while len(time_features) < TWEETS_PER_DAY:
+        time_features.append([0])
     return time_features
 
 def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback_window=7):
@@ -207,8 +209,6 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
             for embedding in tweet_embeddings[stock][day]:
                 if len(embedding) != 15:
                     print(embedding)
-            
-            
 
     output = []
     # Loop through trading days 
@@ -236,19 +236,22 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
             embeddings_per_stock = []
             for lookback_day in lookback_dates:
                 if lookback_day in tweet_embeddings[stock]:
-                    num_tweets.append(len(tweet_embeddings[stock][lookback_day]))
+                    num_tweets.append([len(tweet_embeddings[stock][lookback_day])])
                     time_features_by_stock_by_day = calculate_time_features(tweet_data[stock][lookback_day])
                     time_features_by_stock.append(time_features_by_stock_by_day)
                     embeddings_per_stock.append(tweet_embeddings[stock][lookback_day])
                 else:
-                    num_tweets.append(0)
+                    num_tweets.append([0])
                     embeddings_per_stock.append([])
+                
+
             embeddings.append(embeddings_per_stock)
             length_data.append(num_tweets)
             time_features.append(time_features_by_stock)
 
         data_point['length_data'] = torch.tensor(length_data)
-        data_point['time_features'] = time_features
+        print(time_features[0])
+        data_point['time_features'] = torch.tensor(time_features)
 
         # Convert padded embeddings to PyTorch tensor
         fixed_texts_per_day = 10  # Choose a suitable fixed number based on your requirements
