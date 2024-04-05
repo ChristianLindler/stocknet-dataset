@@ -197,7 +197,7 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
         print(f'Stock: {stock}')
         for day in tweet_embeddings[stock]:
             while len(tweet_embeddings[stock][day]) < 10:
-                tweet_embeddings[stock][day].append([0] * 15)
+                tweet_embeddings[stock][day].append([0] * 768)
             while len(tweet_embeddings[stock][day]) > 10:
                 tweet_embeddings[stock][day].pop(-1)
                 tweet_data[stock][day].pop(-1)
