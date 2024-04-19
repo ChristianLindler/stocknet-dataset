@@ -3,21 +3,22 @@ import pickle
 import pandas as pd
 import os
 import torch
-from tweet.tweetPreprocessing import getTokens
+from tqdm import tqdm
+from tweet.tweetPreprocessing import getEmbeddings
 from datetime import datetime, timedelta
 
 
 price_directory = './price/raw'
 tweet_directory = './tweet/raw'
 
-
 TWEETS_PER_DAY = 10
 
-def load_tweet_tokens(stock_tickers=None, start_date=None, end_date=None):
+def load_tweet_embeddings(stock_tickers=None, start_date=None, end_date=None):
     tweet_data = {}
 
     # Loop thru folders in the tweet directory, disregard ones we didnt specify
     for ticker_folder in os.listdir(tweet_directory):
+        
         ticker_path = os.path.join(tweet_directory, ticker_folder)
         ticker_symbol = ticker_folder
         
@@ -25,16 +26,17 @@ def load_tweet_tokens(stock_tickers=None, start_date=None, end_date=None):
         if stock_tickers is not None and ticker_symbol not in stock_tickers:
             continue
         
+        print(f'Loading tweets from {ticker_folder}')
         tweet_data[ticker_symbol] = {}
 
         # Loop through each text file in the ticker folder
-        for filename in os.listdir(ticker_path):
+        for filename in tqdm(os.listdir(ticker_path)):
             tweet_date = filename.split('.')[0]
             if start_date is not None and (tweet_date < start_date or tweet_date > end_date):
                 continue
             
             tweet_file = os.path.join(ticker_path, filename)
-            tweet_data[ticker_symbol][tweet_date] = getTokens(tweet_file)
+            tweet_data[ticker_symbol][tweet_date] = getEmbeddings(tweet_file)
     
     return tweet_data
 
@@ -130,6 +132,7 @@ def load_prices(stock_tickers=None, start_date=None, end_date=None):
     
     return price_data
 
+
 def get_trading_days(price_data):
     tickers = list(price_data.keys())
     example_ticker = tickers[0]
@@ -157,7 +160,7 @@ def calculate_time_features(tweets):
     tweets_with_datetime = [{'created_at': datetime.strptime(tweet['created_at'], '%a %b %d %H:%M:%S %z %Y')} for tweet in tweets]
     sorted_tweets = sorted(tweets_with_datetime, key=lambda x: x['created_at'])
 
-    time_features = []
+    time_features = [[0] * TWEETS_PER_DAY]
 
     # If first tweet is in preceding day put 0, else put 1/time from midnight
     if len(sorted_tweets) == 0:
@@ -169,32 +172,31 @@ def calculate_time_features(tweets):
     
 
     # Check if first and last tweets occur on different days
-    if first_tweet_time.date() != last_tweet_time.date():
-        time_features.append([0])
-    else:
+    if first_tweet_time.date() == last_tweet_time.date():
         time_diff_to_midnight = (first_tweet_time - midnight).total_seconds() / 60
-        time_features.append([1 / time_diff_to_midnight if time_diff_to_midnight != 0 else 0])
+        time_features[0][0] = (1 / time_diff_to_midnight if time_diff_to_midnight != 0 else 0)
 
     # Create time_features list
-    for i in range(1, min(len(sorted_tweets), TWEETS_PER_DAY)):
+    for i in range(1, min(len(sorted_tweets), TWEETS_PER_DAY - 1)):
         time_diff = (sorted_tweets[i]['created_at'] - sorted_tweets[i-1]['created_at']).total_seconds() / 60
-        time_features.append([1 / time_diff if time_diff != 0 else 0])
+        if i > 0 and i < len(time_features):
+            time_features[i][0] = (1 / time_diff if time_diff != 0 else 0)
 
-    while len(time_features) < TWEETS_PER_DAY:
-        time_features.append([0])
     return time_features
+
 
 def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback_window=7):
     lookback_start = get_previous_dates(start_date, lookback_window)[0]
-
     price_data = load_prices(stock_tickers, lookback_start, end_date)
-    tweet_embeddings = load_tweet_tokens(stock_tickers, lookback_start, end_date)
+    print('Loaded Price Data')
+    tweet_embeddings = load_tweet_embeddings(stock_tickers, lookback_start, end_date)
+    print('Generated Tweet Embeddings')
     tweet_data = load_raw_tweets(stock_tickers, lookback_start, end_date)
+    print('Loaded Raw Tweet Data')
     trading_days = get_trading_days(price_data)
 
     # Make all dimensions of embeddings equal so we can turn it into a tensor
     for stock in tweet_embeddings:
-        print(f'Stock: {stock}')
         for day in tweet_embeddings[stock]:
             while len(tweet_embeddings[stock][day]) < 10:
                 tweet_embeddings[stock][day].append([0] * 768)
@@ -204,13 +206,10 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
             
             if len(tweet_embeddings[stock][day]) != 10:
                 print('We got a problem, beast')
-            for embedding in tweet_embeddings[stock][day]:
-                if len(embedding) != 15:
-                    print(embedding)
 
     output = []
     # Loop through trading days 
-    for idx, date in enumerate(trading_days):
+    for idx, date in enumerate(tqdm(trading_days)):
         if idx < lookback_window:
             continue
         data_point = {}
@@ -241,6 +240,7 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
                 else:
                     num_tweets.append([0])
                     embeddings_per_stock.append([])
+                    time_features_by_stock_by_day.append([[0] * TWEETS_PER_DAY])
                 
 
             embeddings.append(embeddings_per_stock)
@@ -248,24 +248,24 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
             time_features.append(time_features_by_stock)
 
         data_point['length_data'] = torch.tensor(length_data)
-        print(time_features[0])
         data_point['time_features'] = torch.tensor(time_features)
 
         # Convert padded embeddings to PyTorch tensor
-        fixed_texts_per_day = 10  # Choose a suitable fixed number based on your requirements
+        fixed_texts_per_day = TWEETS_PER_DAY
 
         # Pad or truncate the embeddings to match the chosen fixed number
         for stock in embeddings:
             for day in stock:
-                if len(day) < fixed_texts_per_day:
+                if len(day) == 0:
+                    day = [[[0] * 768] * fixed_texts_per_day]
+                elif len(day) < fixed_texts_per_day:
                     # Pad with zeros to match the fixed number of texts per day
-                    day += [[0] * len(day[0])] * (fixed_texts_per_day - len(day))
+                    day += [[0] * 768] * (fixed_texts_per_day - len(day))
                 elif len(day) > fixed_texts_per_day:
                     # Truncate to match the fixed number of texts per day
                     day = day[:fixed_texts_per_day]
 
         data_point['embedding'] = torch.tensor(embeddings)
-
         data_point['adj_close_last'] = torch.tensor(adj_closed_last)
         data_point['adj_close_target'] = torch.tensor(adj_closed_target)
 
@@ -274,25 +274,36 @@ def preprocess_data(stock_tickers=None, start_date=None, end_date=None, lookback
     return output
 
 
-stock_tickers = ['AAPL', 'AMZN', 'GOOG']
+def get_all_tickers():
+    tickers = []
+    for filename in os.listdir(price_directory):
+        if filename.endswith(".csv"):
+            ticker_symbol = filename.split('.')[0]
+            tickers.append(ticker_symbol)
+    return tickers
+
+
+stock_tickers = ['AAPL', 'MSFT', 'AMZN', 'FB', 'V', 'JPM']
 start_date = '2014-02-01'
-end_date = '2014-03-01'
+end_date = '2014-08-01'
 
 
-#print(load_tweets(stock_tickers, start_date, end_date)['AAPL']['2014-02-01'][0])
-print('Preprocessing data...')
-data = preprocess_data(stock_tickers, start_date, end_date, 2)
-split_ratio = 0.8
-split_index = int(len(data) * split_ratio)
-training_data = data[:split_index]
-testing_data = data[split_index:]
+def main():
+    print('Preprocessing data...')
+    data = preprocess_data(stock_tickers, start_date, end_date, 7)
+    split_ratio = 0.8
+    split_index = int(len(data) * split_ratio)
+    training_data = data[:split_index]
+    testing_data = data[split_index:]
 
 
-# Save training and testing sets to pickle files
-with open('training_data.pkl', 'wb') as f:
-    pickle.dump(training_data, f)
+    # Save training and testing sets to pickle files
+    with open('training_data.pkl', 'wb') as f:
+        pickle.dump(training_data, f)
 
-with open('testing_data.pkl', 'wb') as f:
-    pickle.dump(testing_data, f)
+    with open('testing_data.pkl', 'wb') as f:
+        pickle.dump(testing_data, f)
 
-print('Saved data to training_data.pkl and testing_data.pkl')
+    print('Saved data to training_data.pkl and testing_data.pkl')
+
+main()
