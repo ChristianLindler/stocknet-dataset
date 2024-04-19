@@ -17,7 +17,7 @@ def tokenize(text):
   tknzr = TweetTokenizer(reduce_len=True)
   return tknzr.tokenize(text)
 
-def getTokens(tweet_file):
+def getEmbeddings(tweet_file):
   with open(tweet_file) as fp:
       json2csv(fp, 'temp.csv', ['created_at', 'text'])
 
